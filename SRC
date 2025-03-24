@@ -1,0 +1,201 @@
+import speech_recognition as sr
+import pyautogui
+import pyttsx3
+import webbrowser
+import os
+import time
+import cv2
+import mediapipe as mp
+import threading
+
+# Text-to-Speech Function
+def speak(text):
+    engine = pyttsx3.init()
+    engine.say(text)
+    engine.runAndWait()
+
+# Open Applications Based on Voice Command
+def open_app(command):
+    apps = {
+        "browser": "https://www.google.com",
+        "file explorer": "explorer",
+        "downloads folder": "explorer shell:Downloads",
+        "word": "start winword",
+        "excel": "start excel",
+        "notepad": "notepad",
+        "email": "https://mail.google.com",
+        "youtube": "https://www.youtube.com"
+    }
+    
+    for key, path in apps.items():
+        if key in command:
+            speak(f"Opening {key}")
+            webbrowser.open(path) if "https" in path else os.system(path)
+            return True
+    return False
+
+# Execute Keyboard Shortcuts
+def execute_shortcut(command):
+    shortcuts = {
+        "close window": ("alt", "f4"),
+        "switch tab": ("ctrl", "tab"),
+        "new tab": ("ctrl", "t"),
+        "minimize window": ("win", "down"),
+        "maximize window": ("win", "up"),
+        "show desktop": ("win", "d"),
+        "create new folder": ("ctrl", "shift", "n"),
+        "delete file": ("delete",),
+        "play music": ("playpause",),
+        "pause music": ("playpause",),
+        "next song": ("nexttrack",),
+        "previous song": ("prevtrack",),
+        "increase volume": ["volumeup"] * 5,
+        "decrease volume": ["volumedown"] * 5,
+        "mute sound": ("volumemute",)
+    }
+    
+    for key, keys in shortcuts.items():
+        if key in command:
+            speak(f"Executing {key}")
+            if isinstance(keys, list):
+                for k in keys:
+                    pyautogui.press(k)
+            else:
+                pyautogui.hotkey(*keys)
+            return True
+    return False
+
+# Execute System Commands
+def execute_command(command):
+    command = command.lower()
+
+    if "exit program" in command:
+        speak("Exiting program.")
+        os._exit(0)  # Stops all threads safely
+
+    if open_app(command) or execute_shortcut(command):
+        return
+    
+    actions = {
+        "scroll down": lambda: pyautogui.scroll(-500),
+        "scroll up": lambda: pyautogui.scroll(500),
+        "find my files": lambda: os.system("start search-ms:"),
+        "shut down laptop": lambda: os.system("shutdown /s /t 5"),
+        "lock screen": lambda: os.system("rundll32.exe user32.dll,LockWorkStation"),
+        "open task manager": lambda: os.system("taskmgr"),
+        "take screenshot": lambda: pyautogui.screenshot().save("screenshot.png")
+    }
+
+    for key, action in actions.items():
+        if key in command:
+            speak(f"Executing {key}")
+            action()
+            return
+
+    if "search google for" in command:
+        query = command.replace("search google for", "").strip()
+        speak(f"Searching Google for {query}")
+        webbrowser.open(f"https://www.google.com/search?q={query}")
+    else:
+        speak("Command not recognized, please try again.")
+
+# Voice Recognition Function (Runs in Thread)
+def recognize_speech():
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
+        speak("Voice control activated")
+        while True:
+            recognizer.adjust_for_ambient_noise(source)
+            try:
+                audio = recognizer.listen(source, timeout=5)
+                command = recognizer.recognize_google(audio)
+                print(f"You said: {command}")
+                execute_command(command)
+            except sr.UnknownValueError:
+                pass
+            except sr.WaitTimeoutError:
+                pass
+
+# Hand Gesture Control Function (Runs in Thread)
+def hand_gesture_control():
+    mp_hands = mp.solutions.hands
+    hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7)
+    mp_draw = mp.solutions.drawing_utils
+    cap = cv2.VideoCapture(0)
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        frame = cv2.flip(frame, 1)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        result = hands.process(rgb_frame)
+
+        if result.multi_hand_landmarks:
+            for hand_landmarks in result.multi_hand_landmarks:
+                mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+                thumb_tip = hand_landmarks.landmark[4]
+                index_tip = hand_landmarks.landmark[8]
+                middle_tip = hand_landmarks.landmark[12]
+
+                # Volume Up (Thumb Up)
+                if thumb_tip.y < index_tip.y and thumb_tip.y < middle_tip.y:
+                    speak("Increasing volume")
+                    pyautogui.press("volumeup")
+
+                # Volume Down (Thumb Down)
+                elif thumb_tip.y > index_tip.y and thumb_tip.y > middle_tip.y:
+                    speak("Decreasing volume")
+                    pyautogui.press("volumedown")
+
+                # Switch Tab Left (Index Finger Left)
+                elif index_tip.x < thumb_tip.x:
+                    speak("Switching tab left")
+                    pyautogui.hotkey("ctrl", "shift", "tab")
+
+                # Switch Tab Right (Index Finger Right)
+                elif index_tip.x > thumb_tip.x:
+                    speak("Switching tab right")
+                    pyautogui.hotkey("ctrl", "tab")
+
+                # Minimize Window (Thumb & Index Touching)
+                elif abs(index_tip.x - thumb_tip.x) < 0.02 and abs(index_tip.y - thumb_tip.y) < 0.02:
+                    speak("Minimizing window")
+                    pyautogui.hotkey("win", "down")
+
+                # Scroll Up (Middle Finger Up)
+                elif middle_tip.y < index_tip.y:
+                    speak("Scrolling up")
+                    pyautogui.scroll(500)
+
+                # Scroll Down (Middle Finger Down)
+                elif middle_tip.y > index_tip.y:
+                    speak("Scrolling down")
+                    pyautogui.scroll(-500)
+
+                # Open Task Manager (Both Fingers Close Together)
+                elif abs(thumb_tip.y - index_tip.y) < 0.02 and abs(index_tip.y - middle_tip.y) < 0.02:
+                    speak("Opening task manager")
+                    os.system("taskmgr")
+
+        cv2.imshow("Hand Gesture Control", frame)
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+# Run Both Functions in Parallel
+if __name__ == "__main__":
+    speak("Starting hands-free laptop control")
+
+    voice_thread = threading.Thread(target=recognize_speech, daemon=True)
+    gesture_thread = threading.Thread(target=hand_gesture_control, daemon=True)
+
+    voice_thread.start()
+    gesture_thread.start()
+
+    voice_thread.join()
+    gesture_thread.join()
