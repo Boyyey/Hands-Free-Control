@@ -83,7 +83,7 @@ or manually close the window.
 ---
 
 ## 📝 Credits
-Created by [Your Name] to make hands-free laptop control a reality! 🚀  
+Created by Me to make hands-free laptop control a reality! 🚀  
 
 💡 *Feel free to contribute, improve, or suggest new features!*
 
